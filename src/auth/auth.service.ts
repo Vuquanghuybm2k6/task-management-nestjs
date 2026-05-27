@@ -11,12 +11,16 @@ import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { GoogleUserDto } from './dto/googleUser.dto';
+
 @Injectable()
 export class AuthService {
   constructor(
     @InjectRepository(User) // Kết nối vào db để thao tác với bảng users
     private readonly userRepository: Repository<User>,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
   ) {}
   async register(registerDto: RegisterDto): Promise<Partial<User>> {
     const existingUser = await this.userRepository.findOne({ where: { email: registerDto.email } });
@@ -24,10 +28,22 @@ export class AuthService {
       throw new BadRequestException('Email này đã được sử dụng, vui lòng chọn email khác!');
     }
 
-    const user = this.userRepository.create(registerDto);
+    const user = this.userRepository.create({
+      email: registerDto.email,
+      name: registerDto.name,
+      password: registerDto.password,
+      profile: {
+        phone: registerDto.phone,
+        avatar: registerDto.avatar,
+        address: registerDto.address,
+      } as any,
+    });
     const saved = await this.userRepository.save(user);
-    const { password, otpCode, otpExpireAt, ...result } = saved; //tìm trong đối tượng
-    //user đã lưu, lấy ra tất cả các trường trừ password, otpCode, otpExpireAt để trả về cho client
+    const { password, ...result } = saved as any;
+    if (result.profile) {
+      delete result.profile.otpCode;
+      delete result.profile.otpExpireAt;
+    }
     return result;
   }
   async login(loginDto: LoginDto): Promise<Partial<User>> {
@@ -41,9 +57,14 @@ export class AuthService {
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
     }
 
-    const { password, otpCode, otpExpireAt, ...result } = user;
+    const { password, ...result } = user as any;
+    if (result.profile) {
+      delete result.profile.otpCode;
+      delete result.profile.otpExpireAt;
+    }
     return result;
   }
+
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({ where: { email: forgotPasswordDto.email } });
     if (!user) {
@@ -52,8 +73,12 @@ export class AuthService {
 
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpireAt = new Date(Date.now() + 10 * 60 * 1000);
-    user.otpCode = otpCode;
-    user.otpExpireAt = otpExpireAt;
+    if (!user.profile) {
+      user.profile = {} as any;
+    }
+    const profile = user.profile!;
+    profile.otpCode = otpCode;
+    profile.otpExpireAt = otpExpireAt;
     await this.userRepository.save(user);
 
     await this.sendOtpEmail(user, otpCode);
@@ -62,15 +87,15 @@ export class AuthService {
 
   async verifyOtp(verifyOtpDto: VerifyOtpDto): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({ where: { email: verifyOtpDto.email } });
-    if (!user || !user.otpCode || !user.otpExpireAt) {
+    if (!user || !user.profile || !user.profile.otpCode || !user.profile.otpExpireAt) {
       throw new BadRequestException('OTP không hợp lệ');
     }
 
-    if (user.otpCode !== verifyOtpDto.otpCode) {
+    if (user.profile.otpCode !== verifyOtpDto.otpCode) {
       throw new BadRequestException('OTP không đúng');
     }
 
-    if (user.otpExpireAt < new Date()) {
+    if (user.profile.otpExpireAt < new Date()) {
       throw new BadRequestException('OTP đã hết hạn');
     }
 
@@ -79,21 +104,21 @@ export class AuthService {
 
   async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({ where: { email: resetPasswordDto.email } });
-    if (!user || !user.otpCode || !user.otpExpireAt) {
+    if (!user || !user.profile || !user.profile.otpCode || !user.profile.otpExpireAt) {
       throw new BadRequestException('Yêu cầu đặt lại mật khẩu không hợp lệ');
     }
 
-    if (user.otpCode !== resetPasswordDto.otpCode) {
+    if (user.profile.otpCode !== resetPasswordDto.otpCode) {
       throw new BadRequestException('OTP không đúng');
     }
 
-    if (user.otpExpireAt < new Date()) {
+    if (user.profile.otpExpireAt < new Date()) {
       throw new BadRequestException('OTP đã hết hạn');
     }
 
     user.password = await bcrypt.hash(resetPasswordDto.password, 10);
-    user.otpCode = undefined;
-    user.otpExpireAt = undefined;
+    user.profile.otpCode = undefined;
+    user.profile.otpExpireAt = undefined;
     user.tokenUser = crypto.randomBytes(16).toString('hex');
 
     await this.userRepository.save(user);
@@ -132,5 +157,29 @@ export class AuthService {
       console.error('Lỗi gửi email OTP:', error);
       throw new InternalServerErrorException('Không gửi được email OTP, vui lòng thử lại sau');
     }
+  }
+
+  async validateOAuthUser(googleUser: GoogleUserDto): Promise<{jwt:string}> {
+    // 1. Kiểm tra user trong Postgres
+    let user = await this.userRepository.findOne({ where: { email: googleUser.email } });
+
+    if (!user) {
+      // 2. Nếu chưa có thì tạo mới
+      user = await this.userRepository.save({
+        email: googleUser.email,
+        name: googleUser.fullName || googleUser.email,
+        profile: {
+          avatar: googleUser.avatar,
+          googleId: googleUser.googleId,
+        } as any,
+      } as any);
+    }
+
+    const existingUser = user as User;
+    // 3. Tạo JWT Token
+    const payload = { sub: existingUser.id, email: existingUser.email };
+    return {
+      jwt: this.jwtService.sign(payload),
+    };
   }
 }

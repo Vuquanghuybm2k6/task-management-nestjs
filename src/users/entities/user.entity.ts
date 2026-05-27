@@ -1,14 +1,16 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, BeforeInsert, BeforeUpdate, OneToMany} from "typeorm";
+import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, BeforeInsert, BeforeUpdate, OneToMany, OneToOne, JoinColumn } from 'typeorm';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
-import { Task } from "../../tasks/entities/task.entity";
+import { Task } from '../../tasks/entities/task.entity';
+import { Profile } from '../../profile/entities/profile.entity';
+import { RefreshToken } from 'src/refresh_tokens/entities/refresh_token.entity';
 
 @Entity('users')
-export class User{
+export class User {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({unique: true})
+  @Column({ unique: true })
   email!: string;
 
   @Column()
@@ -17,26 +19,18 @@ export class User{
   @Column()
   password!: string;
 
-  @Column({unique:true})
+  @Column({ unique: true })
   tokenUser!: string;
 
-  @Column({nullable: true, unique:true})
-  phone?: string;
+  @OneToOne(() => Profile, (profile) => profile.user, { cascade: true, eager: true })
+  @JoinColumn()
+  profile?: Profile;
 
-  @Column({nullable: true})
-  avatar?: string;
-
-  @Column({nullable: true})
-  address?: string;
-
-  @Column({nullable: true})
-  otpCode?: string;
-
-  @Column({nullable: true, type: 'timestamp with time zone'})
-  otpExpireAt?: Date;
-  
   @OneToMany(() => Task, (task) => task.user)
   tasks!: Task[];
+
+  @OneToMany(()=>RefreshToken, (refreshToken)=> refreshToken.user)
+  refreshTokens!: RefreshToken[]; // user có thể sẽ chứa nhiều refresh token nên sẽ biểu thị thành dạng mảng
 
   @CreateDateColumn()
   createdAt!: Date;

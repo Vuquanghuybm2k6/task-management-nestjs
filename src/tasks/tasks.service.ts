@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'; // Các decorator này được sử dụng để đánh dấu lớp là một provider có thể được inject vào các lớp khác trong NestJS.
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateTaskDto } from './dto/create-task.dto';
@@ -36,7 +36,17 @@ export class TasksService {
     const offset = (page - 1) * limit;
     const qb = this.taskRepository
       .createQueryBuilder('task')
-      .leftJoinAndSelect('task.user', 'user');
+      .leftJoin('task.user', 'user')
+      .leftJoin('user.profile', 'profile')
+      .select([
+        'task',
+        'user.id',
+        'user.email',
+        'user.name',
+        'profile.phone',
+        'profile.avatar',
+        'profile.address',
+      ]);
 
     if (query.search) {
       const search = `%${query.search.trim()}%`;
@@ -44,18 +54,37 @@ export class TasksService {
     }
 
     const [data, total] = await qb.skip(offset).take(limit).getManyAndCount();
-    // trả về một mảng gồm 2 phần từ , data là danh sách task sau khi đã phân trang và lọc theo search,
-    //  total là tổng số task
+    const mappedData = data.map((task) => ({
+      ...task,
+      user: {
+        id: task.user.id,
+        email: task.user.email,
+        name: task.user.name,
+        phone: task.user.profile?.phone,
+        avatar: task.user.profile?.avatar,
+        address: task.user.profile?.address,
+      } as any,
+    }));
 
-    return { data, total, page, limit };
+    return { data: mappedData, total, page, limit };
   }
 
   async findOne(id: string): Promise<Task> {
-    const task = await this.taskRepository.findOne({ where: { id }, relations: ['user'] });
+    const task = await this.taskRepository.findOne({ where: { id }, relations: ['user', 'user.profile'] });
     if (!task) {
       throw new NotFoundException('Task không tồn tại');
     }
-    return task;
+    return {
+      ...task,
+      user: {
+        id: task.user.id,
+        email: task.user.email,
+        name: task.user.name,
+        phone: task.user.profile?.phone,
+        avatar: task.user.profile?.avatar,
+        address: task.user.profile?.address,
+      } as any,
+    };
   }
 
   async update(id: string, updateTaskDto: UpdateTaskDto): Promise<Task> {
