@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Post, Req } from '@nestjs/common'; // Các decorator này được sử dụng để định nghĩa các route và xử lý yêu cầu HTTP trong NestJS. Chúng giúp xác định phương thức HTTP (GET, POST, v.v.) và cách xử lý dữ liệu từ yêu cầu.
+import { BadRequestException, Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common'; // Các decorator này được sử dụng để định nghĩa các route và xử lý yêu cầu HTTP trong NestJS. Chúng giúp xác định phương thức HTTP (GET, POST, v.v.) và cách xử lý dữ liệu từ yêu cầu.
 import { AuthService } from './auth.service';
 import { RegisterDto } from 'src/users/dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -6,7 +6,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-
+import { AuthGuard } from '@nestjs/passport';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController{
@@ -64,5 +64,15 @@ export class AuthController{
   @ApiResponse({status: 200, description: 'Mật khẩu đã được đặt lại thành công'})
   async resetPassword(@Body() resetPasswordDto: ResetPasswordDto){
     return await this.authService.resetPassword(resetPasswordDto);
+  }
+
+  @Get('google')
+  @UseGuards(AuthGuard('google'))
+  async googleAuth(@Req() req) {} //gọi passport, kích hoạt ra gg stragety và redirect qua trang gg login
+
+  @Get('google/callback')
+  @UseGuards(AuthGuard('google'))
+  async googleAuthRedirect(@Req() req) {
+    return await this.authService.handleOAuthLogin(req.user, req);
   }
 }

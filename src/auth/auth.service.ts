@@ -77,8 +77,8 @@ export class AuthService {
       relations: ['profile']
     });
 
-    // 2. Kiểm tra sự tồn tại và so sánh mật khẩu hash
-    if (!user || !(await bcrypt.compare(loginDto.password, user.password))) {
+    // 2. Kiểm tra sự tồn tại, có password, và so sánh mật khẩu hash
+    if (!user || !user.password || !(await bcrypt.compare(loginDto.password, user.password))) {
       throw new UnauthorizedException('Email hoặc mật khẩu không chính xác'); // dừng mọi hoạt động phía sau
     }
 
@@ -182,6 +182,62 @@ export class AuthService {
       await this.refreshTokensService.update(token.id, { isRevoked: true });
     }
   }
+
+  async handleOAuthLogin(user: User, req: any): Promise<any> {
+    const accessToken = this.generateAccessToken(user);
+    const refreshToken = this.generateRefreshToken(user);
+
+    const expireAt = new Date();
+    expireAt.setDate(expireAt.getDate() + 7);
+
+    await this.refreshTokensService.save({
+      token: refreshToken,
+      userId: user.id,
+      expiresAt: expireAt,
+      ipAddress: req.ip || 'oauth',
+      userAgent: req.headers['user-agent'] || 'google-oauth',
+      deviceInfo: this.extractDeviceInfo(req.headers['user-agent'] || ''),
+    });
+
+    const { password, ...userResult } = user as User;
+    if (userResult.profile) {
+      delete userResult.profile.otpCode;
+      delete userResult.profile.otpExpireAt;
+    }
+
+    return {
+      message: 'Đăng nhập Google thành công!',
+      user: userResult,
+      accessToken,
+      refreshToken,
+    };
+  }
+
+ async validateOAuthUser(details: { googleId: string; email: string; name: string }) {
+  // Tìm bằng googleId 
+  let user = await this.userRepository.findOne({ where: { googleId: details.googleId } });
+
+  if (!user) {
+    user = await this.userRepository.findOne({ where: { email: details.email } });
+  }
+
+  if (user) {
+    
+    if (!user.googleId) {
+      user.googleId = details.googleId;
+      await this.userRepository.save(user);
+    }
+    return user;
+  }
+
+  const newUser = this.userRepository.create({
+    googleId: details.googleId,
+    email: details.email,
+    name: details.name
+  } as any);
+
+  return await this.userRepository.save(newUser);
+}
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({ where: { email: forgotPasswordDto.email } });

@@ -16,11 +16,11 @@ export class User {
   @Column()
   name!: string;
 
-  @Column()
-  password!: string;
+  @Column({ nullable: true })
+  password?: string;
 
-  // @Column({ unique: true })
-  // tokenUser!: string;
+  @Column({ unique: true, nullable: true })
+  googleId?: string; 
 
   @OneToOne(() => Profile, (profile) => profile.user, { cascade: true, eager: true })
   @JoinColumn()

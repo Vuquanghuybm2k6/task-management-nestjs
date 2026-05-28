@@ -6,6 +6,7 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { ProfileModule } from './profile/profile.module';
 import { RefreshTokensModule } from './refresh_tokens/refresh_tokens.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { RefreshTokensModule } from './refresh_tokens/refresh_tokens.module';
     UsersModule,
     ProfileModule,
     RefreshTokensModule,
+    AiModule,
   ],
   controllers: [],
 })
