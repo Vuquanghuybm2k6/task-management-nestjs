@@ -12,7 +12,7 @@ import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { GoogleUserDto } from './dto/googleUser.dto';
+import { RefreshTokensService } from 'src/refresh_tokens/refresh_tokens.service';
 
 @Injectable()
 export class AuthService {
@@ -21,7 +21,30 @@ export class AuthService {
     private readonly userRepository: Repository<User>,
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
-  ) {}
+    private readonly refreshTokensService: RefreshTokensService,
+  ) { }
+
+  // Hàm tạo Access Token (Hạn ngắn: 15 phút)
+  generateAccessToken(user: User): string {
+    const payload = { // định nghĩa dữ liệu mang theo, payload là phần tt muốn lưu trong token
+      sub: user.id, // sub là để lưu id người dùng, sv nhìn lên và biết được ai đang gọi api đấy
+      email: user.email 
+    }; 
+    return this.jwtService.sign(payload, { // hàm trộn payload với secret để tạo token
+      secret: process.env.JWT_ACCESS_SECRET || 'accessSecret',
+      expiresIn: '15m', // Bạn có thể chỉnh lại thời gian tùy ý
+    });
+  }
+
+  // Hàm tạo Refresh Token (Hạn dài: 7 ngày)
+  generateRefreshToken(user: User): string {
+    const payload = { sub: user.id }; // Refresh token chỉ cần lưu userId (sub) cho gọn
+    return this.jwtService.sign(payload, {
+      secret: process.env.JWT_REFRESH_SECRET || 'refreshSecret',
+      expiresIn: '7d',
+    });
+  }
+
   async register(registerDto: RegisterDto): Promise<Partial<User>> {
     const existingUser = await this.userRepository.findOne({ where: { email: registerDto.email } });
     if (existingUser) {
@@ -46,23 +69,118 @@ export class AuthService {
     }
     return result;
   }
-  async login(loginDto: LoginDto): Promise<Partial<User>> {
-    const user = await this.userRepository.findOne({ where: { email: loginDto.email } });
-    if (!user) {
-      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+
+  async login(loginDto: LoginDto, req: any): Promise<any> {
+    // 1. Tìm user và lấy luôn cả mật khẩu + profile
+    const user = await this.userRepository.findOne({
+      where: { email: loginDto.email },
+      relations: ['profile']
+    });
+
+    // 2. Kiểm tra sự tồn tại và so sánh mật khẩu hash
+    if (!user || !(await bcrypt.compare(loginDto.password, user.password))) {
+      throw new UnauthorizedException('Email hoặc mật khẩu không chính xác'); // dừng mọi hoạt động phía sau
     }
 
-    const passwordMatched = await bcrypt.compare(loginDto.password, user.password);
-    if (!passwordMatched) {
-      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+    // 3. Tạo cặp đôi Token
+    const accessToken = this.generateAccessToken(user);
+    const refreshToken = this.generateRefreshToken(user);
+
+    // 4. Thiết lập thời gian hết hạn cho DB (7 ngày)
+    const expireAt = new Date();
+    expireAt.setDate(expireAt.getDate() + 7);
+
+    // 5. Thu thập thông tin từ request
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const deviceInfo = this.extractDeviceInfo(userAgent);
+
+    // 6. Lưu Refresh Token vào database
+    await this.refreshTokensService.save({
+      token: refreshToken, // Dùng biến đã tạo ở bước 3
+      userId: user.id,
+      expiresAt: expireAt,
+      ipAddress: ipAddress,
+      userAgent: userAgent,
+      deviceInfo: deviceInfo,
+    });
+
+    // 7. Trả về cho Client (Ẩn mật khẩu để bảo mật)
+    const { password, ...userResult } = user;
+    return {
+      message: 'Đăng nhập thành công',
+      user: userResult,
+      accessToken,
+      refreshToken,
+    };
+  }
+  
+  private extractDeviceInfo(userAgent: string): string {
+    if (userAgent.includes('iPhone')) return 'iPhone';
+    if (userAgent.includes('Android')) return 'Android Device';
+    if (userAgent.includes('Macintosh')) return 'MacBook/Mac';
+    if (userAgent.includes('Windows')) return 'Windows PC';
+    return 'Unknown Device';
+  }
+
+
+  // Tại src/auth/auth.service.ts
+
+  async refreshAccessToken(refreshTokenStr: string, req: any): Promise<any> {
+    // Kiểm tra Token có tồn tại trong Database không
+    const savedToken = await this.refreshTokensService.findOneByToken(refreshTokenStr);
+
+    // Nếu không tìm thấy hoặc Token đã bị thu hồi (isRevoked)
+    if (!savedToken || savedToken.isRevoked) {
+      // Nếu bị hack hoặc dùng lại token cũ, ta thu hồi toàn bộ phiên đăng nhập của user này cho an toàn
+      if (savedToken) {
+        await this.refreshTokensService.revokeAllUserTokens(savedToken.userId);
+      }
+      throw new UnauthorizedException('Token không hợp lệ hoặc đã bị thu hồi!');
     }
 
-    const { password, ...result } = user as any;
-    if (result.profile) {
-      delete result.profile.otpCode;
-      delete result.profile.otpExpireAt;
+    // Kiểm tra Token đã hết hạn chưa (Expired At)
+    if (new Date() > savedToken.expiresAt) {
+      throw new UnauthorizedException('Refresh Token đã hết hạn, vui lòng đăng nhập lại!');
     }
-    return result;
+
+    // Lấy thông tin User từ token đã lưu
+    const user = savedToken.user;
+
+    // XOAY VÒNG TOKEN (ROTATION):
+    // - Hủy token cũ ngay lập tức
+    await this.refreshTokensService.update(savedToken.id, { isRevoked: true });
+
+    // - Tạo bộ token mới (Access Token & Refresh Token mới)
+    const accessToken = this.generateAccessToken(user);
+    const newRefreshTokenStr = this.generateRefreshToken(user);
+
+    // Lưu Refresh Token mới vào Database
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    await this.refreshTokensService.save({
+      token: newRefreshTokenStr,
+      userId: user.id,
+      expiresAt: expiresAt,
+      ipAddress: req.ip || 'unknown',
+      userAgent: req.headers['user-agent'] || 'unknown',
+      deviceInfo: this.extractDeviceInfo(req.headers['user-agent'] || ''),
+    });
+
+    // Trả về bộ token mới cho Client
+    return {
+      accessToken,
+      refreshToken: newRefreshTokenStr,
+    };
+  }
+
+  async logout(refreshToken: string): Promise<void> {
+    const token = await this.refreshTokensService.findOneByToken(refreshToken);
+    if (token) {
+      // Đổi trạng thái thành đã thu hồi
+      await this.refreshTokensService.update(token.id, { isRevoked: true });
+    }
   }
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<{ message: string }> {
@@ -116,10 +234,15 @@ export class AuthService {
       throw new BadRequestException('OTP đã hết hạn');
     }
 
+    // 1. Mã hóa mật khẩu mới
     user.password = await bcrypt.hash(resetPasswordDto.password, 10);
+
+    // 2. Dọn dẹp OTP
     user.profile.otpCode = undefined;
     user.profile.otpExpireAt = undefined;
-    user.tokenUser = crypto.randomBytes(16).toString('hex');
+
+    // 3. QUAN TRỌNG: Đuổi tất cả các thiết bị đang đăng nhập ra ngoài
+    await this.refreshTokensService.revokeAllUserTokens(user.id);
 
     await this.userRepository.save(user);
     return { message: 'Mật khẩu đã được cập nhật thành công' };
@@ -159,27 +282,4 @@ export class AuthService {
     }
   }
 
-  async validateOAuthUser(googleUser: GoogleUserDto): Promise<{jwt:string}> {
-    // 1. Kiểm tra user trong Postgres
-    let user = await this.userRepository.findOne({ where: { email: googleUser.email } });
-
-    if (!user) {
-      // 2. Nếu chưa có thì tạo mới
-      user = await this.userRepository.save({
-        email: googleUser.email,
-        name: googleUser.fullName || googleUser.email,
-        profile: {
-          avatar: googleUser.avatar,
-          googleId: googleUser.googleId,
-        } as any,
-      } as any);
-    }
-
-    const existingUser = user as User;
-    // 3. Tạo JWT Token
-    const payload = { sub: existingUser.id, email: existingUser.email };
-    return {
-      jwt: this.jwtService.sign(payload),
-    };
-  }
 }

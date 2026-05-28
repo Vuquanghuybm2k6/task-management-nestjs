@@ -19,8 +19,8 @@ export class User {
   @Column()
   password!: string;
 
-  @Column({ unique: true })
-  tokenUser!: string;
+  // @Column({ unique: true })
+  // tokenUser!: string;
 
   @OneToOne(() => Profile, (profile) => profile.user, { cascade: true, eager: true })
   @JoinColumn()
@@ -41,8 +41,8 @@ export class User {
     if(this.password && !this.password.startsWith('$2')){
       this.password = await bcrypt.hash(this.password, 10);
     }
-    if(!this.tokenUser){
-      this.tokenUser = crypto.randomBytes(16).toString('hex')
-    }
+    // if(!this.tokenUser){
+    //   this.tokenUser = crypto.randomBytes(16).toString('hex')
+    // }
   }
 }

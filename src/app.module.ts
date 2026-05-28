@@ -5,10 +5,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { ProfileModule } from './profile/profile.module';
-import { ProductsController } from './products/products.controller';
-import { ProductsModule } from './products/products.module';
 import { RefreshTokensModule } from './refresh_tokens/refresh_tokens.module';
-import { ProductsModule } from './products/products.module';
 
 @Module({
   imports: [
@@ -33,9 +30,8 @@ import { ProductsModule } from './products/products.module';
     TasksModule,
     UsersModule,
     ProfileModule,
-    ProductsModule,
     RefreshTokensModule,
   ],
-  controllers: [ProductsController],
+  controllers: [],
 })
 export class AppModule {}
