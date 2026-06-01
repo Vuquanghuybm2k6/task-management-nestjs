@@ -8,7 +8,6 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import * as bcrypt from 'bcryptjs';
-import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -71,31 +70,31 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto, req: any): Promise<any> {
-    // 1. Tìm user và lấy luôn cả mật khẩu + profile
+    //  Tìm user và lấy luôn cả mật khẩu + profile
     const user = await this.userRepository.findOne({
       where: { email: loginDto.email },
       relations: ['profile']
     });
 
-    // 2. Kiểm tra sự tồn tại, có password, và so sánh mật khẩu hash
+    //  Kiểm tra sự tồn tại, có password, và so sánh mật khẩu hash
     if (!user || !user.password || !(await bcrypt.compare(loginDto.password, user.password))) {
       throw new UnauthorizedException('Email hoặc mật khẩu không chính xác'); // dừng mọi hoạt động phía sau
     }
 
-    // 3. Tạo cặp đôi Token
+    //  Tạo cặp đôi Token
     const accessToken = this.generateAccessToken(user);
     const refreshToken = this.generateRefreshToken(user);
 
-    // 4. Thiết lập thời gian hết hạn cho DB (7 ngày)
+    //  Thiết lập thời gian hết hạn cho DB (7 ngày)
     const expireAt = new Date();
     expireAt.setDate(expireAt.getDate() + 7);
 
-    // 5. Thu thập thông tin từ request
+    //  Thu thập thông tin từ request
     const ipAddress = req.ip || req.headers['x-forwarded-for'] || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
     const deviceInfo = this.extractDeviceInfo(userAgent);
 
-    // 6. Lưu Refresh Token vào database
+    //  Lưu Refresh Token vào database
     await this.refreshTokensService.save({
       token: refreshToken, // Dùng biến đã tạo ở bước 3
       userId: user.id,
@@ -105,7 +104,7 @@ export class AuthService {
       deviceInfo: deviceInfo,
     });
 
-    // 7. Trả về cho Client (Ẩn mật khẩu để bảo mật)
+    //  Trả về cho Client (Ẩn mật khẩu để bảo mật)
     const { password, ...userResult } = user;
     return {
       message: 'Đăng nhập thành công',

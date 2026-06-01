@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common'; // Các decorator này được sử dụng để định nghĩa các route và xử lý yêu cầu HTTP trong NestJS. Chúng giúp xác định phương thức HTTP (GET, POST, v.v.) và cách xử lý dữ liệu từ yêu cầu.
+import { BadRequestException, Body, Controller, Get, Post, Req, UseGuards, Res } from '@nestjs/common'; // Các decorator này được sử dụng để định nghĩa các route và xử lý yêu cầu HTTP trong NestJS. Chúng giúp xác định phương thức HTTP (GET, POST, v.v.) và cách xử lý dữ liệu từ yêu cầu.
+import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from 'src/users/dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -22,17 +23,36 @@ export class AuthController{
   @Post('login')
   @ApiOperation({summary: 'Đăng nhập người dùng'})
   @ApiResponse({status: 200, description: 'Đăng nhập thành công, trả về access token và refresh token'})
-  async login(@Body() loginDto: LoginDto, @Req() req:any) {
-    return await this.authService.login(loginDto, req);
+  async login(@Body() loginDto: LoginDto, @Req() req:any, @Res({passthrough: true}) res: Response) {
+    const tokens = await this.authService.login(loginDto, req);
+
+    //  Lưu Refresh Token vào HttpOnly Cookie (Bảo mật cao nhất)
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true,     // JS không thể đọc (Chống XSS)
+      secure: true,       // Chỉ gửi qua HTTPS
+      sameSite: 'strict', // Chống CSRF
+      maxAge: 7 * 24 * 60 * 60 * 1000 // Hết hạn sau 7 ngày
+    });
+
+    //  Lưu Access Token vào Cookie thường (Để FE có thể đọc nếu cần)
+    // Hoặc trả về trong Body để FE tự lưu
+    res.cookie('accessToken', tokens.accessToken, {
+      httpOnly: false,    // FE có thể đọc để đính vào Header
+      secure: true,
+      sameSite: 'strict',
+      maxAge: 15 * 60 * 1000 // Hết hạn sau 15 phút
+    });
+    console.log("A token",tokens.accessToken)
+
+    console.log("R token", tokens.refreshToken)
+    return { message: 'Success' };
   }
 
   @Post('refresh')
   @ApiOperation({summary: 'Làm mới token truy cập'})
   @ApiResponse({status: 200, description: 'Token truy cập được làm mới thành công'})
-  async refresh(
-    @Body('refreshToken') refreshToken: string, 
-    @Req() req: any
-  ) {
+  async refresh(@Req() req: any) {
+    const refreshToken = req.cookies['refreshToken']; // Đọc từ ngăn chứa Cookie
     if (!refreshToken) { // nếu người dùng không gửi kèm R token thì return về lỗi
       throw new BadRequestException('Refresh Token là bắt buộc');
     }

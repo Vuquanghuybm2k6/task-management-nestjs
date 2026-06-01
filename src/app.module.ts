@@ -6,7 +6,7 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { ProfileModule } from './profile/profile.module';
 import { RefreshTokensModule } from './refresh_tokens/refresh_tokens.module';
-import { AiModule } from './ai/ai.module';
+import { RoadmapModule } from './roadmaps/roadmaps.module';
 
 @Module({
   imports: [
@@ -32,7 +32,7 @@ import { AiModule } from './ai/ai.module';
     UsersModule,
     ProfileModule,
     RefreshTokensModule,
-    AiModule,
+    RoadmapModule,
   ],
   controllers: [],
 })

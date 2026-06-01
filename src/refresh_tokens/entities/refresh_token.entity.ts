@@ -1,5 +1,4 @@
 import { User } from 'src/users/entities/user.entity';
-// Import thêm CreateDateColumn
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity('refresh_tokens')
@@ -17,7 +16,7 @@ export class RefreshToken {
   @Column({ default: false })
   isRevoked!: boolean; // cột này để xem xem token đã bị vô hiệu hóa chưa, false: còn dùng được; true: đã bị thu hồi hoặc logout
 
-  // ĐÃ SỬA: Thay @Column() bằng @CreateDateColumn() để tự động lưu thời gian tạo
+  //Thay @Column() bằng @CreateDateColumn() để tự động lưu thời gian tạo
   @CreateDateColumn({ type: 'timestamp' }) 
   createdAt!: Date;
 
@@ -27,7 +26,7 @@ export class RefreshToken {
   @Column({ nullable: true })
   ipAddress!: string; // Lưu IP để tăng cường bảo mật, cảnh báo khi lạ
 
-  // ĐÃ THÊM: Khai báo rõ ràng cột userId để tiện query mà không cần load cả Object User
+  // Khai báo rõ ràng cột userId để tiện query mà không cần load cả Object User
   @Column()
   userId!: string;
 

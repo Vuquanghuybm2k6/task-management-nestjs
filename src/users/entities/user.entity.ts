@@ -1,9 +1,9 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, BeforeInsert, BeforeUpdate, OneToMany, OneToOne, JoinColumn } from 'typeorm';
-import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { Task } from '../../tasks/entities/task.entity';
 import { Profile } from '../../profile/entities/profile.entity';
 import { RefreshToken } from 'src/refresh_tokens/entities/refresh_token.entity';
+import { Roadmap } from '../../roadmaps/entities/roadmap.entity';
 
 @Entity('users')
 export class User {
@@ -32,6 +32,9 @@ export class User {
   @OneToMany(()=>RefreshToken, (refreshToken)=> refreshToken.user)
   refreshTokens!: RefreshToken[]; // user có thể sẽ chứa nhiều refresh token nên sẽ biểu thị thành dạng mảng
 
+  @OneToMany(()=> Roadmap, (roadmaps) => roadmaps.user)
+  roadmaps!: Roadmap[]
+
   @CreateDateColumn()
   createdAt!: Date;
 
@@ -41,8 +44,5 @@ export class User {
     if(this.password && !this.password.startsWith('$2')){
       this.password = await bcrypt.hash(this.password, 10);
     }
-    // if(!this.tokenUser){
-    //   this.tokenUser = crypto.randomBytes(16).toString('hex')
-    // }
   }
 }
