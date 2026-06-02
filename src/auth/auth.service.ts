@@ -209,7 +209,7 @@ export class AuthService {
       user: userResult,
       accessToken,
       refreshToken,
-    };
+    };  
   }
 
  async validateOAuthUser(details: { googleId: string; email: string; name: string }) {
@@ -217,7 +217,9 @@ export class AuthService {
   let user = await this.userRepository.findOne({ where: { googleId: details.googleId } });
 
   if (!user) {
-    user = await this.userRepository.findOne({ where: { email: details.email } });
+    user = await this.userRepository.findOne({ where: { email: details.email } }); //details.googleId là id duy nhất của gg,
+    //  còn details.email là email của người dùng, nếu đã tồn tại email này rồi thì sẽ gắn googleId vào tài khoản đó luôn, 
+    // tránh việc một người dùng tạo nhiều tài khoản bằng cách đăng nhập gg nhiều lần với cùng một email
   }
 
   if (user) {

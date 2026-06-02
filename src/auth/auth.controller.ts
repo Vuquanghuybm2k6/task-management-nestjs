@@ -51,16 +51,26 @@ export class AuthController{
   @Post('refresh')
   @ApiOperation({summary: 'Làm mới token truy cập'})
   @ApiResponse({status: 200, description: 'Token truy cập được làm mới thành công'})
-  async refresh(@Req() req: any) {
+  async refresh(@Req() req: any, @Res({passthrough: true}) res: Response) {
     const refreshToken = req.cookies['refreshToken']; // Đọc từ ngăn chứa Cookie
     if (!refreshToken) { // nếu người dùng không gửi kèm R token thì return về lỗi
       throw new BadRequestException('Refresh Token là bắt buộc');
     }
-    return this.authService.refreshAccessToken(refreshToken, req);
+    const newTokens = await this.authService.refreshAccessToken(refreshToken, req);
+
+    // PHẢI SET LẠI COOKIE MỚI VÀO TRÌNH DUYỆT
+    res.cookie('refreshToken', newTokens.refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    return { accessToken: newTokens.accessToken };
   }
   
   @Post('logout')
-  @ApiOperation({summary: 'Đăng xuất người dùng'})
+  @ApiOperation({summary: 'Đăng xuất người dùng'})  
   @ApiResponse({status: 200, description: 'Đăng xuất thành công'})
   async logout(@Body('refreshToken') refreshToken: string) {
     await this.authService.logout(refreshToken);
